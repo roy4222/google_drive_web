@@ -1,0 +1,52 @@
+# Composer
+/vendor/
+composer.lock
+
+# 環境設定檔
+.env
+*.env
+config.php
+credentials.json
+token.json
+
+# IDE 和編輯器檔案
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+.DS_Store
+
+# 快取和暫存檔案
+/cache/
+*.cache
+*.log
+*.tmp
+
+# 上傳檔案目錄
+/uploads/
+/public/uploads/
+
+# Node modules (如果有使用)
+/node_modules/
+package-lock.json
+
+# 其他系統檔案
+Thumbs.db
+desktop.ini
+
+# PHP 相關
+error_log
+php_errors.log
+
+# 測試相關
+/tests/coverage/
+.phpunit.result.cache
+
+# 備份檔案
+*.bak
+*.backup
+*~ 
+
+
