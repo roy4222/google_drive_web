@@ -1,5 +1,4 @@
 <?php
-// 在檔案開頭添加 session 啟動
 session_start();
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -14,7 +13,7 @@ $perPage = 20;
 
 // 添加排序和搜尋參數
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
-$sort = isset($_GET['sort']) ? $_GET['sort'] : 'upload_time';
+$sort = isset($_GET['sort']) ? $_GET['sort'] : 'random';
 $order = isset($_GET['order']) ? $_GET['order'] : 'desc';
 
 // 初始化服務
@@ -28,15 +27,31 @@ $googleDriveService = new GoogleDriveService(
     $config['google_drive']['folder_id']
 );
 
-// 在獲取圖片資料之前添加錯誤處理
+// 獲取圖片資料
 try {
     $allImages = $firebaseService->getImages();
+    $originalImages = $allImages; // 保存原始數據
 } catch (Exception $e) {
     $allImages = [];
+    $originalImages = [];
     echo '<div class="error-message">載入圖片資料時發生錯誤: ' . htmlspecialchars($e->getMessage()) . '</div>';
 }
 
-// 搜尋過濾
+// 首先初始化隨機排序（如果需要）
+if ($sort === 'random' && (!isset($_SESSION['random_order']) || isset($_GET['new_random']))) {
+    // 使用原始圖片數組生成隨機順序
+    $imageKeys = array_keys($originalImages); // 使用原始數據的鍵
+    shuffle($imageKeys);
+    $_SESSION['random_order'] = $imageKeys;
+    
+    if (isset($_GET['new_random'])) {
+        // 重定向到第一頁以移除 new_random 參數，保持搜尋條件
+        header("Location: ?page=1&sort=random" . ($search ? "&search=" . urlencode($search) : ""));
+        exit;
+    }
+}
+
+// 然後進行搜尋過濾
 if ($search !== '') {
     $allImages = array_filter($allImages, function($image) use ($search) {
         $animeTitle = isset($image['anime_title']) ? $image['anime_title'] : '';
@@ -47,40 +62,25 @@ if ($search !== '') {
     });
 }
 
-// 修改隨機排序的處理邏輯
+// 最後應用排序
 if ($sort === 'random') {
-    // 檢查是否需要重新生成隨機順序
-    $needNewRandom = !isset($_SESSION['random_images']) || 
-                    !isset($_SESSION['current_search']) ||
-                    $_SESSION['current_search'] !== $search;
-    
-    if ($needNewRandom) {
-        // 保存當前的搜尋條件
-        $_SESSION['current_search'] = $search;
-        
-        // 生成隨機鍵值對應陣列
-        $randomKeys = array_keys($allImages);
-        shuffle($randomKeys);
-        
-        // 重新排序圖片陣列
+    if (isset($_SESSION['random_order'])) {
+        // 使用保存的隨機順序重新排列圖片，但只包含搜尋後的結果
         $randomImages = [];
-        foreach ($randomKeys as $key) {
-            $randomImages[$key] = $allImages[$key];
+        foreach ($_SESSION['random_order'] as $key) {
+            if (isset($allImages[$key])) {  // 確保只包含搜尋結果中的圖片
+                $randomImages[$key] = $allImages[$key];
+            }
         }
-        
-        // 保存到 session
-        $_SESSION['random_images'] = $randomImages;
         $allImages = $randomImages;
-    } else {
-        // 使用已存在的隨機順序
-        $allImages = $_SESSION['random_images'];
     }
 } else {
-    // 不是隨機排序時清除 session 中的隨機排序結果
-    unset($_SESSION['random_images']);
-    unset($_SESSION['current_search']);
+    // 不是隨機排序時清除隨機排序的session
+    if (isset($_SESSION['random_order'])) {
+        unset($_SESSION['random_order']);
+    }
     
-    // 原有的排序邏輯
+    // 進行其他排序
     usort($allImages, function($a, $b) use ($sort, $order) {
         $result = 0;
         switch ($sort) {
@@ -105,13 +105,10 @@ if ($sort === 'random') {
     });
 }
 
+// 分頁處理
 $totalImages = count($allImages);
 $totalPages = ceil($totalImages / $perPage);
-
-// 確保頁數不超過總頁數
 $page = min($page, $totalPages);
-
-// 分割當前頁的圖片
 $images = array_slice($allImages, ($page - 1) * $perPage, $perPage, true);
 ?>
 
@@ -501,6 +498,61 @@ $images = array_slice($allImages, ($page - 1) * $perPage, $perPage, true);
             opacity: 0.5;
             filter: grayscale(100%);
         }
+
+        .search-input-wrapper {
+            position: relative;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 10px 40px 10px 15px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            font-size: 1rem;
+            background: rgb(36, 46, 54);
+            color: #ffffff;
+            transition: all 0.3s ease;
+        }
+
+        .search-input:focus {
+            border-color: #ffd700;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.2);
+        }
+
+        .clear-search {
+            position: absolute;
+            right: 35px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: rgba(255,255,255,0.5);
+            cursor: pointer;
+            padding: 5px;
+            font-size: 14px;
+            transition: color 0.3s ease;
+        }
+
+        .search-icon {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: rgba(255,255,255,0.5);
+            cursor: pointer;
+            padding: 5px;
+            font-size: 14px;
+        }
+
+        .clear-search:hover,
+        .search-icon:hover {
+            color: rgba(255,255,255,0.8);
+        }
     </style>
 
     <?php if ($page < $totalPages): ?>
@@ -516,20 +568,39 @@ $images = array_slice($allImages, ($page - 1) * $perPage, $perPage, true);
     <?php foreach (array_slice($images, 0, 4) as $image): ?>
         <link rel="preload" as="image" href="get_image.php?id=<?php echo urlencode($image['path']); ?>">
     <?php endforeach; ?>
+
+    <!-- 添加 Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 </head>
 <body>
     <h1>動畫截圖展示</h1>
 
-    <!-- 添加搜尋和排序表單 -->
+    <!-- 修改搜尋和排序表單 -->
     <div class="search-sort-container">
-        <form class="search-sort-form" method="GET">
-            <input type="text" 
-                   name="search" 
-                   class="search-input" 
-                   placeholder="搜尋動畫名稱或集數..."
-                   value="<?php echo htmlspecialchars($search); ?>">
+        <form class="search-sort-form" method="GET" id="searchForm">
+            <div class="search-input-wrapper">
+                <input type="text" 
+                       name="search" 
+                       class="search-input" 
+                       placeholder="搜尋動畫名稱或集數..."
+                       value="<?php echo htmlspecialchars($search); ?>"
+                       id="searchInput">
+                <?php if ($search): ?>
+                    <button type="button" 
+                            class="clear-search" 
+                            onclick="clearSearch()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                <?php endif; ?>
+                <button type="submit" class="search-icon">
+                    <i class="fas fa-search"></i>
+                </button>
+            </div>
             
-            <select name="sort" class="sort-select">
+            <select name="sort" class="sort-select" onchange="handleSortChange(this)">
+                <option value="random" <?php echo $sort === 'random' ? 'selected' : ''; ?>>
+                    隨機排序
+                </option>
                 <option value="upload_time" <?php echo $sort === 'upload_time' ? 'selected' : ''; ?>>
                     上傳時間
                 </option>
@@ -539,16 +610,10 @@ $images = array_slice($allImages, ($page - 1) * $perPage, $perPage, true);
                 <option value="episode" <?php echo $sort === 'episode' ? 'selected' : ''; ?>>
                     集數
                 </option>
-                <option value="random" <?php echo $sort === 'random' ? 'selected' : ''; ?>>
-                    隨機排序
-                </option>
             </select>
             
             <?php if ($sort === 'random'): ?>
-                <!-- 當選擇隨機排序時隱藏升降序選項 -->
-                <select name="order" class="sort-select" style="display: none;">
-                    <option value="desc" selected>降序</option>
-                </select>
+                <input type="hidden" name="order" value="desc">
             <?php else: ?>
                 <select name="order" class="sort-select">
                     <option value="desc" <?php echo $order === 'desc' ? 'selected' : ''; ?>>
@@ -563,11 +628,18 @@ $images = array_slice($allImages, ($page - 1) * $perPage, $perPage, true);
             <button type="submit" class="search-button">搜尋</button>
             
             <?php if ($sort === 'random'): ?>
-                <!-- 添加重新隨機按鈕 -->
-                <button type="submit" class="search-button" name="new_random" value="1" 
-                        onclick="clearRandomSession()">
+                <button type="button" class="search-button" onclick="refreshRandomOrder()">
                     重新隨機
                 </button>
+            <?php endif; ?>
+            
+            <?php if ($sort === 'random'): ?>
+                <div style="width: 100%; text-align: right; font-size: 0.9rem; color: rgba(255,255,255,0.7);">
+                    共 <?php echo count($allImages); ?> 張圖片
+                    <?php if ($search): ?>
+                        （搜尋結果：<?php echo count($allImages); ?> / <?php echo count($originalImages); ?>）
+                    <?php endif; ?>
+                </div>
             <?php endif; ?>
         </form>
     </div>
@@ -578,7 +650,7 @@ $images = array_slice($allImages, ($page - 1) * $perPage, $perPage, true);
                 <?php if (isset($image['path'])): ?>
                     <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" 
                          data-src="get_image.php?id=<?php echo urlencode($image['path']); ?>" 
-                         alt="<?php echo isset($image['name']) ? htmlspecialchars($image['name']) : '未命名'; ?>"
+                         alt="<?php echo isset($image['name']) ? htmlspecialchars($image['name']) : '命名'; ?>"
                          loading="lazy"
                          decoding="async"
                          width="320"
@@ -637,7 +709,7 @@ $images = array_slice($allImages, ($page - 1) * $perPage, $perPage, true);
     </div>
     <?php endif; ?>
 
-    <!-- 修改燈箱元素，移除資訊框 -->
+    <!-- 修改燈箱元素移除資訊框 -->
     <div class="lightbox" onclick="closeLightbox(event)">
         <div class="close-lightbox" onclick="closeLightbox(event)">×</div>
         <img src="" alt="" onclick="event.stopPropagation()">
@@ -781,10 +853,59 @@ $images = array_slice($allImages, ($page - 1) * $perPage, $perPage, true);
             });
         });
 
-        function clearRandomSession() {
-            // 發送請求清除 session
-            fetch('clear_random_session.php').catch(console.error);
+        function handleSortChange(select) {
+            const orderSelect = document.querySelector('select[name="order"]');
+            if (select.value === 'random') {
+                orderSelect.style.display = 'none';
+                // 清除已有的隨機排序
+                if (window.location.href.includes('sort=random')) {
+                    // 如果已經是隨機排序，不做任何操作
+                    return;
+                }
+            } else {
+                orderSelect.style.display = '';
+            }
         }
+
+        // 修改重新隨機的函數
+        function refreshRandomOrder() {
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('new_random', '1');
+            currentUrl.searchParams.set('page', '1');  // 重置到第一頁
+            window.location.href = currentUrl.toString();
+        }
+
+        // 添加表單提交處理
+        document.getElementById('searchForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const params = new URLSearchParams(formData);
+            
+            // 如果當前是隨機排序，保持隨機排序
+            if (this.querySelector('select[name="sort"]').value === 'random') {
+                params.set('sort', 'random');
+                params.delete('order');  // 移除order參數
+            }
+            
+            // 重置到第一頁
+            params.set('page', '1');
+            
+            window.location.href = '?' + params.toString();
+        });
+
+        function clearSearch() {
+            const searchInput = document.getElementById('searchInput');
+            searchInput.value = '';
+            // 自動提交表單
+            document.getElementById('searchForm').submit();
+        }
+
+        // 添加按下 Esc 鍵清空搜尋
+        document.getElementById('searchInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                clearSearch();
+            }
+        });
     </script>
 </body>
 </html> 
